@@ -1,0 +1,124 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum TranslationStatus {
+  pending
+  processing
+  done
+  failed
+}
+
+enum JobStatus {
+  queued
+  processing
+  completed
+  failed
+}
+
+enum LocalCloneStatus {
+  discovered
+  cloned
+  missing
+}
+
+enum LocalInstallStatus {
+  unknown
+  pending
+  installed
+  failed
+}
+
+model Repository {
+  id                           String            @id @default(cuid())
+  owner                        String
+  name                         String
+  fullName                     String            @unique
+  repoUrl                      String            @unique
+  descriptionOriginal          String?
+  descriptionZh                String?
+  descriptionTranslationStatus TranslationStatus @default(pending)
+  language                     String?
+  stars                        Int               @default(0)
+  forks                        Int               @default(0)
+  starsToday                   Int               @default(0)
+  starsThisWeek                Int               @default(0)
+  starsThisMonth               Int               @default(0)
+  homepageUrl                  String?
+  defaultBranch                String?
+  trendingRank                 Int?
+  trendingRankWeekly           Int?
+  trendingRankMonthly          Int?
+  lastSyncedAt                 DateTime?
+  createdAt                    DateTime          @default(now())
+  updatedAt                    DateTime          @updatedAt
+  readmeDocuments              ReadmeDocument[]
+  installJobs                  InstallJob[]
+  localProjects                LocalProject[]
+
+  @@unique([owner, name])
+}
+
+model ReadmeDocument {
+  id                String            @id @default(cuid())
+  repositoryId      String
+  sourceSha         String
+  contentOriginal   String
+  contentZh         String?
+  translationStatus TranslationStatus @default(pending)
+  translatedAt      DateTime?
+  errorMessage      String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  repository        Repository        @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  @@unique([repositoryId, sourceSha])
+}
+
+model InstallJob {
+  id                String     @id @default(cuid())
+  repositoryId      String?
+  promptText        String
+  targetTmuxSession String?
+  targetTmuxWindow  String?
+  targetTmuxPane    String?
+  status            JobStatus  @default(queued)
+  resultSummary     String?
+  errorMessage      String?
+  createdAt         DateTime   @default(now())
+  finishedAt        DateTime?
+  repository        Repository? @relation(fields: [repositoryId], references: [id], onDelete: SetNull)
+}
+
+model LocalProject {
+  id             String             @id @default(cuid())
+  repositoryId   String?
+  rootPath       String
+  projectPath    String             @unique
+  gitRemoteUrl   String?
+  detectedName   String
+  cloneStatus    LocalCloneStatus   @default(discovered)
+  installStatus  LocalInstallStatus @default(unknown)
+  lastScannedAt  DateTime?
+  lastInstalledAt DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  repository     Repository?        @relation(fields: [repositoryId], references: [id], onDelete: SetNull)
+}
+
+model AppSettings {
+  id                        Int      @id @default(1)
+  projectRootPath           String?
+  defaultTmuxSession        String?
+  defaultTmuxWindow         String?
+  defaultTmuxPane           String?
+  translationPromptTemplate String
+  installPromptTemplate     String
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+}
