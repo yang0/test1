@@ -28,4 +28,22 @@ describe("app pages migrate off mock data", () => {
     expect(source).not.toContain('@/data/mock-data');
     expect(source).not.toContain("dynamicParams = false");
   });
+
+  it("readme prewarm no longer caps homepage repositories to a fixed small subset", async () => {
+    const homePageSource = await readAppFile("src/app/page.tsx");
+    const prewarmRouteSource = await readAppFile("src/app/api/readme/prewarm/route.ts");
+
+    expect(homePageSource).not.toContain("slice(0, 8)");
+    expect(prewarmRouteSource).not.toContain("MAX_PREWARM_REPOSITORIES");
+    expect(prewarmRouteSource).not.toContain("slice(0,");
+  });
+
+  it("homepage now lets the server prewarm all repositories from daily weekly and monthly sets", async () => {
+    const homePageSource = await readAppFile("src/app/page.tsx");
+    const prewarmRouteSource = await readAppFile("src/app/api/readme/prewarm/route.ts");
+
+    expect(homePageSource).toContain("body: JSON.stringify({})");
+    expect(prewarmRouteSource).toContain("listRepositoriesForReadmePrewarm");
+    expect(prewarmRouteSource).toContain("if (repositoryIds.length === 0)");
+  });
 });

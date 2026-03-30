@@ -18,16 +18,9 @@ type HomePageProps = {
   searchParams: Promise<HomePageSearchParams>;
 };
 
-function buildReadmePrewarmScript(repositoryIds: string[]) {
-  const ids = JSON.stringify(repositoryIds.slice(0, 8));
-
+function buildReadmePrewarmScript() {
   return `
     (() => {
-      const repositoryIds = ${ids};
-      if (!Array.isArray(repositoryIds) || repositoryIds.length === 0) {
-        return;
-      }
-
       let triggered = false;
       const run = () => {
         if (triggered) {
@@ -37,7 +30,7 @@ function buildReadmePrewarmScript(repositoryIds: string[]) {
         fetch('/api/readme/prewarm', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ repositoryIds }),
+          body: JSON.stringify({}),
           keepalive: true,
         }).catch(() => undefined);
       };
@@ -101,7 +94,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         </div>
 
         <div>
-          <script dangerouslySetInnerHTML={{ __html: buildReadmePrewarmScript(repositories.map((repository) => repository.id)) }} />
+          <script dangerouslySetInnerHTML={{ __html: buildReadmePrewarmScript() }} />
           {repositories.map((repository) => (
             <RepoCard
               key={repository.fullName}

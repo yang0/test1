@@ -34,4 +34,4 @@ npm run build
 - Prisma schema 位于 `prisma/schema.prisma`
 - 本地默认数据库通过 `.env` 中的 `DATABASE_URL` 指向 SQLite 文件
 - 服务逻辑位于 `src/lib/server/`，当前已覆盖 Trending 抓取、README 缓存与翻译，以及本地项目扫描
-- 首页会对前 8 个可见仓库做 README 预热，以降低首次进入详情页的等待时间
+- 首页会触发 README 预热，覆盖日 / 周 / 月任一周期内出现且带有仓库地址的全部仓库，以降低首次进入详情页的等待时间
