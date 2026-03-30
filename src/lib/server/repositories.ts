@@ -111,6 +111,67 @@ export async function listRepositories(period: "daily" | "weekly" | "monthly" = 
     });
 }
 
+export type ListAllRepositoriesInput = {
+  query?: string;
+  page?: number;
+  pageSize?: number;
+};
+
+export function filterAndPaginateRepositories(
+  repositories: Repository[],
+  input: ListAllRepositoriesInput = {},
+) {
+  const normalizedQuery = input.query?.trim().toLocaleLowerCase() ?? "";
+  const pageSize = Number.isInteger(input.pageSize) && (input.pageSize ?? 0) > 0 ? input.pageSize ?? 20 : 20;
+  const requestedPage = Number.isInteger(input.page) && (input.page ?? 0) > 0 ? input.page ?? 1 : 1;
+
+  const filteredRepositories = repositories
+    .filter((repository) => {
+      if (!normalizedQuery) {
+        return true;
+      }
+
+      const haystack = [
+        repository.fullName,
+        repository.owner,
+        repository.name,
+        repository.language,
+        repository.descriptionZh,
+        repository.descriptionOriginal,
+      ]
+        .filter(Boolean)
+        .join("\n")
+        .toLocaleLowerCase();
+
+      return haystack.includes(normalizedQuery);
+    })
+    .sort((left, right) => {
+      if (left.stars !== right.stars) {
+        return right.stars - left.stars;
+      }
+
+      return left.fullName.localeCompare(right.fullName);
+    });
+
+  const total = filteredRepositories.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(requestedPage, totalPages);
+  const startIndex = (page - 1) * pageSize;
+
+  return {
+    repositories: filteredRepositories.slice(startIndex, startIndex + pageSize),
+    total,
+    page,
+    pageSize,
+    totalPages,
+  };
+}
+
+export async function listAllRepositories(input: ListAllRepositoriesInput = {}) {
+  const repositories = await prisma.repository.findMany();
+  return filterAndPaginateRepositories(repositories, input);
+}
+
 export async function findRepositoryByOwnerAndName(owner: string, name: string): Promise<Repository | null> {
   const identity = buildRepositoryIdentity(owner, name);
 
