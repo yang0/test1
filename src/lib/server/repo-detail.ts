@@ -2,7 +2,7 @@ import {
   TranslationStatus,
   type ReadmeDocument,
   type Repository,
-} from "@/generated/prisma/client";
+} from "@/lib/server/prisma-client";
 import { fetchExternal } from "@/lib/server/http";
 import { getLatestReadmeDocument, upsertReadmeDocument } from "@/lib/server/readmes";
 import { translateMarkdownToChinese } from "@/lib/server/translation";

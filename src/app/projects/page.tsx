@@ -2,17 +2,12 @@ import Link from "next/link";
 
 import { ContentShell } from "@/components/content-shell";
 import { ProjectRow } from "@/components/project-row";
-import { ViewSwitch } from "@/components/view-switch";
 import { listLocalProjects } from "@/lib/server/local-projects";
 import { getAppSettings } from "@/lib/server/settings";
 
 import { scanProjectsAction } from "./actions";
 
 export const dynamic = "force-dynamic";
-
-function formatDateTime(value: Date | null) {
-  return value ? value.toLocaleString("zh-CN") : "尚未安装";
-}
 
 function mapCloneStatus(status: "discovered" | "cloned" | "missing") {
   switch (status) {
@@ -22,19 +17,6 @@ function mapCloneStatus(status: "discovered" | "cloned" | "missing") {
       return "目录缺失";
     default:
       return "已发现";
-  }
-}
-
-function mapInstallStatus(status: "unknown" | "pending" | "installed" | "failed") {
-  switch (status) {
-    case "installed":
-      return "已安装";
-    case "pending":
-      return "安装中";
-    case "failed":
-      return "安装失败";
-    default:
-      return "待安装";
   }
 }
 
@@ -50,8 +32,6 @@ async function getProjectsPageData() {
       rootPath: project.rootPath,
       projectPath: project.projectPath,
       cloneStatusLabel: mapCloneStatus(project.cloneStatus),
-      installStatusLabel: mapInstallStatus(project.installStatus),
-      lastInstalledAtLabel: formatDateTime(project.lastInstalledAt),
       sourceLabel: project.repository ? "已匹配 Trending 仓库" : "本地扫描发现",
       note: project.repository
         ? "已根据远端地址匹配到 Trending 仓库记录。"
@@ -68,15 +48,6 @@ export default async function ProjectsPage() {
       eyebrow="本地项目与扫描结果"
       title="我的项目"
       description="查看当前扫描到的本地项目，并基于已保存的仓库根目录重新扫描。通用配置已集中到独立设置页。"
-      actions={
-        <ViewSwitch
-          items={[
-            { href: "/", label: "趋势仓库" },
-            { href: "/projects", label: "我的项目", active: true },
-            { href: "/settings", label: "设置" },
-          ]}
-        />
-      }
     >
       <section className="grid gap-[var(--space-6)]">
         <div className="panel grid gap-[var(--space-4)] px-[var(--space-6)] py-[var(--space-6)] sm:px-[var(--space-8)]">

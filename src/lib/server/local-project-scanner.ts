@@ -5,7 +5,7 @@ import {
   LocalCloneStatus,
   LocalInstallStatus,
   type Repository,
-} from "@/generated/prisma/client";
+} from "@/lib/server/prisma-client";
 import { prisma } from "@/lib/server/db";
 import { upsertLocalProject } from "@/lib/server/local-projects";
 

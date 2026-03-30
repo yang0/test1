@@ -1,4 +1,4 @@
-import { TranslationStatus, type Repository } from "@/generated/prisma/client";
+import { TranslationStatus, type Repository } from "@/lib/server/prisma-client";
 import { buildRepositoryIdentity } from "@/lib/server/repositories";
 import {
   ensureRepositoryReadme,

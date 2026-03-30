@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   buildAppSettingsPatch,
   DEFAULT_AGENT_LAUNCH_COMMAND,
-  DEFAULT_INSTALL_PROMPT_TEMPLATE,
   DEFAULT_TRANSLATION_PROMPT_TEMPLATE,
   ensureAppSettings,
   updateAppSettings,
@@ -17,7 +16,6 @@ describe("settings helpers", () => {
       defaultTmuxSession: " dev-session ",
       defaultTmuxWindow: "   ",
       translationPromptTemplate: "   ",
-      installPromptTemplate: " 自定义安装提示词 ",
     });
 
     expect(patch).toEqual({
@@ -27,7 +25,6 @@ describe("settings helpers", () => {
       defaultTmuxWindow: null,
       defaultTmuxPane: null,
       translationPromptTemplate: DEFAULT_TRANSLATION_PROMPT_TEMPLATE,
-      installPromptTemplate: "自定义安装提示词",
     });
   });
 
@@ -36,7 +33,6 @@ describe("settings helpers", () => {
 
     expect(patch.agentLaunchCommand).toBe(DEFAULT_AGENT_LAUNCH_COMMAND);
     expect(patch.translationPromptTemplate).toBe(DEFAULT_TRANSLATION_PROMPT_TEMPLATE);
-    expect(patch.installPromptTemplate).toBe(DEFAULT_INSTALL_PROMPT_TEMPLATE);
     expect(patch.projectRootPath).toBeNull();
   });
 
@@ -45,7 +41,6 @@ describe("settings helpers", () => {
     await updateAppSettings({
       agentLaunchCommand: "codex --profile browser",
       defaultTmuxSession: "browser-e2e",
-      installPromptTemplate: "请输出安装完成",
     });
 
     const updated = await updateAppSettings({
@@ -55,6 +50,5 @@ describe("settings helpers", () => {
     expect(updated.projectRootPath).toBe("/mnt/e/testProject");
     expect(updated.agentLaunchCommand).toBe("codex --profile browser");
     expect(updated.defaultTmuxSession).toBe("browser-e2e");
-    expect(updated.installPromptTemplate).toBe("请输出安装完成");
   });
 });

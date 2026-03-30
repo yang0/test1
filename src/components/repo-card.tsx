@@ -6,7 +6,6 @@ import {
   getTrendingMetricValue,
   type TrendingPeriod,
 } from "@/lib/trending-period";
-import { requestRepositoryInstallAction } from "@/app/actions/install";
 
 export type RepositoryCardModel = {
   owner: string;
@@ -77,15 +76,6 @@ export function RepoCard({ repository, period = "daily" }: RepoCardProps) {
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-wrap gap-[var(--space-3)]">
-          <form action={requestRepositoryInstallAction}>
-            <input type="hidden" name="owner" value={repository.owner} />
-            <input type="hidden" name="name" value={repository.name} />
-            <button type="submit" className="primary-button">
-              安装
-            </button>
-          </form>
-        </div>
       </div>
     </article>
   );

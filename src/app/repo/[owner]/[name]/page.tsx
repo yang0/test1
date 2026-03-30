@@ -5,8 +5,6 @@ import { notFound } from "next/navigation";
 import { rerenderReadmeAction } from "./actions";
 import { ContentShell } from "@/components/content-shell";
 import { ReadmeViewer } from "@/components/readme-viewer";
-import { ViewSwitch } from "@/components/view-switch";
-import { requestRepositoryInstallAction } from "@/app/actions/install";
 import { formatCompactNumber } from "@/lib/format";
 import { getRepositoryDetailModel } from "@/lib/server/repo-detail";
 import { findRepositoryByOwnerAndName } from "@/lib/server/repositories";
@@ -66,18 +64,7 @@ export default async function RepoDetailPage({ params }: RepoPageProps) {
   const detailModel = await getRepositoryDetailModel(repository);
 
   return (
-    <ContentShell
-      title={repository.fullName}
-      actions={
-        <ViewSwitch
-          items={[
-            { href: "/", label: "返回趋势列表", active: true },
-            { href: "/projects", label: "我的项目" },
-            { href: "/settings", label: "设置" },
-          ]}
-        />
-      }
-    >
+    <ContentShell title={repository.fullName}>
       <section className="grid gap-[var(--space-6)]">
         <section className="panel px-[var(--space-6)] py-[var(--space-5)] sm:px-[var(--space-8)]">
           <div className="flex flex-col gap-[var(--space-4)] lg:flex-row lg:items-center lg:justify-between">
@@ -102,13 +89,6 @@ export default async function RepoDetailPage({ params }: RepoPageProps) {
             </div>
 
             <div className="flex flex-wrap gap-[var(--space-3)] lg:justify-end">
-              <form action={requestRepositoryInstallAction}>
-                <input type="hidden" name="owner" value={repository.owner} />
-                <input type="hidden" name="name" value={repository.name} />
-                <button type="submit" className="primary-button">
-                  安装
-                </button>
-              </form>
               <Link href="/projects" className="secondary-button">
                 查看我的项目
               </Link>

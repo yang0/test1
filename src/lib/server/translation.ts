@@ -1,4 +1,4 @@
-import type { Repository } from "@/generated/prisma/client";
+import type { Repository } from "@/lib/server/prisma-client";
 import { fetchExternal } from "@/lib/server/http";
 
 const GOOGLE_TRANSLATE_ENDPOINT = "https://translate.googleapis.com/translate_a/single";

@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import type { AppSettings } from "@/generated/prisma/client";
+import type { AppSettings } from "@/lib/server/prisma-client";
 
 export const DEFAULT_TRANSLATION_PROMPT_TEMPLATE =
   "请把以下仓库 README 翻译成自然、准确的中文，保留代码块与标题结构。";

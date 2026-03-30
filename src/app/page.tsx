@@ -81,21 +81,9 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const period = normalizeTrendingPeriod(rawPeriod);
   const { repositories } = await getHomePageRepositories(period);
   const lastSyncedAt = repositories[0]?.lastSyncedAt;
-  const currentTrendingHref = period === "daily" ? "/" : `/?period=${period}`;
 
   return (
-    <ContentShell
-      title="中文 Trending 仓库"
-      actions={
-        <ViewSwitch
-          items={[
-            { href: currentTrendingHref, label: "趋势仓库", active: true },
-            { href: "/projects", label: "我的项目" },
-            { href: "/settings", label: "设置" },
-          ]}
-        />
-      }
-    >
+    <ContentShell title="中文 Trending 仓库">
       <section className="panel overflow-hidden">
         <div className="flex flex-col gap-[var(--space-4)] border-b border-[var(--color-border-muted)] bg-[var(--color-canvas-subtle)] px-[var(--space-6)] py-[var(--space-5)] sm:px-[var(--space-8)] lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-col items-start gap-[var(--space-3)] lg:ml-auto lg:items-end">

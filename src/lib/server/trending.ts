@@ -1,4 +1,4 @@
-import { TranslationStatus } from "@/generated/prisma/client";
+import { TranslationStatus } from "@/lib/server/prisma-client";
 import { fetchExternal } from "@/lib/server/http";
 import {
   type RepositoryRecordInput,

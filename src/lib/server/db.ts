@@ -1,5 +1,5 @@
 import { PrismaLibSql } from "@prisma/adapter-libsql";
-import { PrismaClient } from "@/generated/prisma/client";
+import { PrismaClient } from "@/lib/server/prisma-client";
 
 declare global {
   var __prisma__: PrismaClient | undefined;

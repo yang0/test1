@@ -3,7 +3,7 @@ import {
   LocalInstallStatus,
   type LocalProject,
   type Prisma,
-} from "@/generated/prisma/client";
+} from "@/lib/server/prisma-client";
 import { prisma } from "@/lib/server/db";
 
 export type UpsertLocalProjectInput = {
