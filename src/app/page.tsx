@@ -91,6 +91,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           items={[
             { href: currentTrendingHref, label: "趋势仓库", active: true },
             { href: "/projects", label: "我的项目" },
+            { href: "/settings", label: "设置" },
           ]}
         />
       }

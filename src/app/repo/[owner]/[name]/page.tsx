@@ -73,6 +73,7 @@ export default async function RepoDetailPage({ params }: RepoPageProps) {
           items={[
             { href: "/", label: "返回趋势列表", active: true },
             { href: "/projects", label: "我的项目" },
+            { href: "/settings", label: "设置" },
           ]}
         />
       }

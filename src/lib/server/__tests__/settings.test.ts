@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildAppSettingsPatch,
+  DEFAULT_AGENT_LAUNCH_COMMAND,
   DEFAULT_INSTALL_PROMPT_TEMPLATE,
   DEFAULT_TRANSLATION_PROMPT_TEMPLATE,
   ensureAppSettings,
@@ -12,6 +13,7 @@ describe("settings helpers", () => {
   it("trims nullable values and keeps defaults for blank templates", () => {
     const patch = buildAppSettingsPatch({
       projectRootPath: "  E:/workspace/oss-lab  ",
+      agentLaunchCommand: "  custom-codex --fast  ",
       defaultTmuxSession: " dev-session ",
       defaultTmuxWindow: "   ",
       translationPromptTemplate: "   ",
@@ -20,6 +22,7 @@ describe("settings helpers", () => {
 
     expect(patch).toEqual({
       projectRootPath: "E:/workspace/oss-lab",
+      agentLaunchCommand: "custom-codex --fast",
       defaultTmuxSession: "dev-session",
       defaultTmuxWindow: null,
       defaultTmuxPane: null,
@@ -31,6 +34,7 @@ describe("settings helpers", () => {
   it("returns full defaults when values are omitted", () => {
     const patch = buildAppSettingsPatch({});
 
+    expect(patch.agentLaunchCommand).toBe(DEFAULT_AGENT_LAUNCH_COMMAND);
     expect(patch.translationPromptTemplate).toBe(DEFAULT_TRANSLATION_PROMPT_TEMPLATE);
     expect(patch.installPromptTemplate).toBe(DEFAULT_INSTALL_PROMPT_TEMPLATE);
     expect(patch.projectRootPath).toBeNull();
@@ -39,6 +43,7 @@ describe("settings helpers", () => {
   it("preserves unspecified settings when updating a single field", async () => {
     await ensureAppSettings();
     await updateAppSettings({
+      agentLaunchCommand: "codex --profile browser",
       defaultTmuxSession: "browser-e2e",
       installPromptTemplate: "请输出安装完成",
     });
@@ -48,6 +53,7 @@ describe("settings helpers", () => {
     });
 
     expect(updated.projectRootPath).toBe("/mnt/e/testProject");
+    expect(updated.agentLaunchCommand).toBe("codex --profile browser");
     expect(updated.defaultTmuxSession).toBe("browser-e2e");
     expect(updated.installPromptTemplate).toBe("请输出安装完成");
   });

@@ -114,6 +114,7 @@ model LocalProject {
 model AppSettings {
   id                        Int      @id @default(1)
   projectRootPath           String?
+  agentLaunchCommand        String   @default("codex --dangerously-bypass-approvals-and-sandbox --no-alt-screen")
   defaultTmuxSession        String?
   defaultTmuxWindow         String?
   defaultTmuxPane           String?

@@ -1,14 +1,20 @@
 import { prisma } from "@/lib/server/db";
 import {
+  DEFAULT_AGENT_LAUNCH_COMMAND,
   DEFAULT_INSTALL_PROMPT_TEMPLATE,
   DEFAULT_TRANSLATION_PROMPT_TEMPLATE,
   resolveWorkbenchRuntimeConfig,
 } from "@/lib/server/workbench-config";
 
-export { DEFAULT_INSTALL_PROMPT_TEMPLATE, DEFAULT_TRANSLATION_PROMPT_TEMPLATE };
+export {
+  DEFAULT_AGENT_LAUNCH_COMMAND,
+  DEFAULT_INSTALL_PROMPT_TEMPLATE,
+  DEFAULT_TRANSLATION_PROMPT_TEMPLATE,
+};
 
 export type AppSettingsPatch = {
   projectRootPath?: string | null;
+  agentLaunchCommand?: string;
   defaultTmuxSession?: string | null;
   defaultTmuxWindow?: string | null;
   defaultTmuxPane?: string | null;
@@ -24,6 +30,7 @@ function normalizeNullableString(value: string | null | undefined) {
 export function buildAppSettingsPatch(input: AppSettingsPatch) {
   return {
     projectRootPath: normalizeNullableString(input.projectRootPath),
+    agentLaunchCommand: input.agentLaunchCommand?.trim() || DEFAULT_AGENT_LAUNCH_COMMAND,
     defaultTmuxSession: normalizeNullableString(input.defaultTmuxSession),
     defaultTmuxWindow: normalizeNullableString(input.defaultTmuxWindow),
     defaultTmuxPane: normalizeNullableString(input.defaultTmuxPane),
@@ -46,6 +53,7 @@ export async function ensureAppSettings() {
   return prisma.appSettings.create({
     data: {
       id: 1,
+      agentLaunchCommand: DEFAULT_AGENT_LAUNCH_COMMAND,
       translationPromptTemplate: DEFAULT_TRANSLATION_PROMPT_TEMPLATE,
       installPromptTemplate: DEFAULT_INSTALL_PROMPT_TEMPLATE,
     },
@@ -65,6 +73,10 @@ export async function updateAppSettings(input: AppSettingsPatch) {
   const patch = {
     projectRootPath:
       "projectRootPath" in input ? normalizeNullableString(input.projectRootPath) : existing.projectRootPath,
+    agentLaunchCommand:
+      "agentLaunchCommand" in input
+        ? input.agentLaunchCommand?.trim() || DEFAULT_AGENT_LAUNCH_COMMAND
+        : existing.agentLaunchCommand,
     defaultTmuxSession:
       "defaultTmuxSession" in input
         ? normalizeNullableString(input.defaultTmuxSession)

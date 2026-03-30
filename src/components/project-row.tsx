@@ -73,15 +73,6 @@ export function ProjectRow({ project }: ProjectRowProps) {
           <dd>{project.lastInstalledAtLabel}</dd>
         </div>
       </dl>
-
-      <div className="flex shrink-0 flex-wrap gap-[var(--space-3)] lg:justify-end">
-        <button type="button" className="secondary-button" disabled>
-          打开目录（稍后）
-        </button>
-        <button type="button" className="primary-button" disabled>
-          重新安装（阶段 2）
-        </button>
-      </div>
     </article>
   );
 }
