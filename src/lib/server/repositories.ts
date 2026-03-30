@@ -111,6 +111,44 @@ export async function listRepositories(period: "daily" | "weekly" | "monthly" = 
     });
 }
 
+export function getRepositoryBestTrendingRank(
+  repository: Pick<Repository, "trendingRank" | "trendingRankWeekly" | "trendingRankMonthly">,
+) {
+  return Math.min(
+    repository.trendingRank ?? Number.MAX_SAFE_INTEGER,
+    repository.trendingRankWeekly ?? Number.MAX_SAFE_INTEGER,
+    repository.trendingRankMonthly ?? Number.MAX_SAFE_INTEGER,
+  );
+}
+
+export async function listRepositoriesForReadmePrewarm() {
+  const repositories = await prisma.repository.findMany({
+    where: {
+      repoUrl: { not: "" },
+      OR: [
+        { trendingRank: { not: null } },
+        { trendingRankWeekly: { not: null } },
+        { trendingRankMonthly: { not: null } },
+      ],
+    },
+  });
+
+  return repositories.sort((left, right) => {
+    const leftRank = getRepositoryBestTrendingRank(left);
+    const rightRank = getRepositoryBestTrendingRank(right);
+
+    if (leftRank !== rightRank) {
+      return leftRank - rightRank;
+    }
+
+    if (left.stars !== right.stars) {
+      return right.stars - left.stars;
+    }
+
+    return left.fullName.localeCompare(right.fullName);
+  });
+}
+
 export async function findRepositoryByOwnerAndName(owner: string, name: string): Promise<Repository | null> {
   const identity = buildRepositoryIdentity(owner, name);
 

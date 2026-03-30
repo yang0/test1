@@ -2,20 +2,26 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/server/db";
 import { prewarmRepositoryReadmes } from "@/lib/server/repo-detail";
+import { listRepositoriesForReadmePrewarm } from "@/lib/server/repositories";
 
 type PrewarmRequestBody = {
   repositoryIds?: string[];
 };
 
-const MAX_PREWARM_REPOSITORIES = 8;
-
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as PrewarmRequestBody;
-    const repositoryIds = Array.from(new Set(body.repositoryIds ?? [])).slice(0, MAX_PREWARM_REPOSITORIES);
+    const repositoryIds = Array.from(new Set(body.repositoryIds ?? []));
 
     if (repositoryIds.length === 0) {
-      return NextResponse.json({ ok: true, count: 0, results: [] });
+      const repositories = await listRepositoriesForReadmePrewarm();
+      const results = await prewarmRepositoryReadmes(repositories);
+
+      return NextResponse.json({
+        ok: true,
+        count: results.length,
+        results,
+      });
     }
 
     const repositories = await prisma.repository.findMany({
