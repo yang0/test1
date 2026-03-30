@@ -6,6 +6,7 @@ const flowMode = process.env.E2E_FLOW ?? "full";
 const projectRootValue = process.env.E2E_PROJECT_ROOT ?? "/mnt/e/testProject/test1";
 const installPath = process.env.E2E_INSTALL_PATH ?? null;
 const foregroundMode = process.env.E2E_FOREGROUND !== "false";
+const installTimeoutMs = Number(process.env.E2E_INSTALL_TIMEOUT_MS ?? "600000");
 
 class CdpClient {
   constructor(socket, sessionId) {
@@ -127,6 +128,43 @@ async function navigate(pageClient, url) {
   await waitForCondition(pageClient, "document.readyState === 'complete'");
 }
 
+async function configureProjectRoot(pageClient) {
+  await navigate(pageClient, `${appUrl}/projects`);
+  await waitForCondition(pageClient, "document.body.innerText.includes('我的项目')");
+
+  await evaluate(
+    pageClient,
+    `(() => {
+      const input = document.querySelector('input[name="projectRootPath"]');
+      if (!(input instanceof HTMLInputElement)) {
+        return false;
+      }
+      input.focus();
+      input.value = ${JSON.stringify(projectRootValue)};
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`,
+  );
+
+  await evaluate(
+    pageClient,
+    `(() => {
+      const button = [...document.querySelectorAll('button')].find((item) => item.textContent?.includes('保存设置'));
+      button?.click();
+      return Boolean(button);
+    })()`,
+  );
+
+  await waitForCondition(
+    pageClient,
+    `(() => {
+      const input = document.querySelector('input[name="projectRootPath"]');
+      return input instanceof HTMLInputElement && input.value === ${JSON.stringify(projectRootValue)};
+    })()`,
+  );
+}
+
 async function run() {
   const { browserSocket, browserClient, pageClient, targetId } = await createClient();
 
@@ -149,6 +187,7 @@ async function run() {
 
     if (flowMode === "install") {
       const targetPath = installPath ?? firstRepoHref;
+      await configureProjectRoot(pageClient);
 
       await navigate(pageClient, `${appUrl}${targetPath}`);
       await waitForCondition(pageClient, "document.body.innerText.includes('中文 README')", 60000);
@@ -160,13 +199,56 @@ async function run() {
           return Boolean(button);
         })()`,
       );
-      await new Promise((resolve) => setTimeout(resolve, 2500));
+
+      await waitForCondition(pageClient, "location.pathname.startsWith('/install/')", 60000);
+      const installJobPath = await evaluate(pageClient, "location.pathname");
+      await new Promise((resolve) => setTimeout(resolve, 4000));
+
+      await evaluate(
+        pageClient,
+        `(() => {
+          const button = [...document.querySelectorAll('button')].find((item) => item.textContent?.trim() === '发送安装提示词');
+          button?.click();
+          return Boolean(button);
+        })()`,
+      );
+
+      await waitForCondition(
+        pageClient,
+        `(() => {
+          const text = document.body.innerText;
+          return text.includes('已完成') || text.includes('已失败');
+        })()`,
+        installTimeoutMs,
+      );
+
+      const finalStatus = await evaluate(
+        pageClient,
+        `(() => {
+          const text = document.body.innerText;
+          if (text.includes('已完成')) return 'completed';
+          if (text.includes('已失败')) return 'failed';
+          return 'processing';
+        })()`,
+      );
+      const consoleTail = await evaluate(
+        pageClient,
+        `document.querySelector('.install-console')?.textContent ?? ''`,
+      );
+
+      if (finalStatus !== "completed") {
+        throw new Error(`Install flow failed. Final status: ${finalStatus}\n${consoleTail}`);
+      }
+
       console.log(
         JSON.stringify(
           {
             ok: true,
             installClicked: true,
             detailPath: targetPath,
+            installJobPath,
+            finalStatus,
+            consoleTail,
           },
           null,
           2,
@@ -201,38 +283,7 @@ async function run() {
 
     await waitForCondition(pageClient, "location.pathname === '/projects'");
     await waitForCondition(pageClient, "document.body.innerText.includes('我的项目')");
-
-    await evaluate(
-      pageClient,
-      `(() => {
-        const input = document.querySelector('input[name="projectRootPath"]');
-        if (!(input instanceof HTMLInputElement)) {
-          return false;
-        }
-        input.focus();
-        input.value = ${JSON.stringify(projectRootValue)};
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-        return true;
-      })()`,
-    );
-
-    await evaluate(
-      pageClient,
-      `(() => {
-        const button = [...document.querySelectorAll('button')].find((item) => item.textContent?.includes('保存设置'));
-        button?.click();
-        return Boolean(button);
-      })()`,
-    );
-
-    await waitForCondition(
-      pageClient,
-      `(() => {
-        const input = document.querySelector('input[name="projectRootPath"]');
-        return input instanceof HTMLInputElement && input.value === ${JSON.stringify(projectRootValue)};
-      })()`,
-    );
+    await configureProjectRoot(pageClient);
 
     await evaluate(
       pageClient,
