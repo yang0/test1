@@ -52,3 +52,28 @@ export async function listLocalProjects() {
     orderBy: [{ detectedName: "asc" }],
   });
 }
+
+export async function findLatestLocalProjectForRepository(repositoryId: string) {
+  return prisma.localProject.findFirst({
+    where: {
+      repositoryId,
+    },
+    orderBy: [{ updatedAt: "desc" }],
+  });
+}
+
+export async function updateLocalProjectInstallState(
+  id: string,
+  installStatus: LocalInstallStatus,
+  lastInstalledAt: Date | null,
+) {
+  return prisma.localProject.update({
+    where: { id },
+    data: {
+      installStatus,
+      lastInstalledAt,
+    },
+  });
+}
+
+export { LocalCloneStatus, LocalInstallStatus };

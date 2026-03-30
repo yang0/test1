@@ -17,18 +17,18 @@ export type ResolvedTmuxTarget = {
   pane: string | null;
 };
 
-type InstallPromptRepository = {
-  fullName: string;
-  repoUrl: string;
-};
-
-function quoteShellArgument(value: string) {
-  return `'${value.replace(/'/g, `'"'"'`)}'`;
-}
-
 function normalizeTmuxPart(value: string | null | undefined) {
   const normalized = value?.trim();
   return normalized ? normalized : null;
+}
+
+async function hasTmuxTarget(target: string) {
+  try {
+    await execFileAsync("tmux", ["has-session", "-t", target]);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function resolveTmuxTarget(settings: Partial<AppSettings>, input: TmuxTargetInput = {}): ResolvedTmuxTarget {
@@ -58,55 +58,56 @@ export function targetToString(target: ResolvedTmuxTarget) {
   return value;
 }
 
-export function buildInstallPrompt(
-  template: string,
-  repository: InstallPromptRepository,
-  projectRootPath: string | null,
-) {
-  return [
-    template.trim(),
-    "",
-    `仓库：${repository.fullName}`,
-    `地址：${repository.repoUrl}`,
-    `建议根目录：${projectRootPath ?? "未配置"}`,
-    "请克隆仓库、阅读 README、安装依赖，并输出摘要。",
-  ].join("\n");
-}
-
-export function buildCodexInstallShellCommand(input: {
-  workspacePath: string;
-  prompt: string;
-  summaryFilePath: string;
-  transcriptFilePath: string;
-  finalizeCommand: string;
-}) {
-  const codexCommand = [
-    "codex exec",
-    "--dangerously-bypass-approvals-and-sandbox",
-    "-C",
-    quoteShellArgument(input.workspacePath),
-    "-o",
-    quoteShellArgument(input.summaryFilePath),
-    quoteShellArgument(input.prompt),
-    ">",
-    quoteShellArgument(input.transcriptFilePath),
-    "2>&1",
-  ].join(" ");
-
-  return [
-    "bash -lc",
-    quoteShellArgument(`${codexCommand}; status=$?; ${input.finalizeCommand} $status`),
-  ].join(" ");
-}
-
 export async function ensureTmuxTargetExists(target: ResolvedTmuxTarget) {
-  await execFileAsync("tmux", ["has-session", "-t", target.session]);
+  const sessionExists = await hasTmuxTarget(target.session);
+
+  if (!sessionExists) {
+    if (target.window) {
+      await execFileAsync("tmux", ["new-session", "-d", "-s", target.session, "-n", target.window]);
+    } else {
+      await execFileAsync("tmux", ["new-session", "-d", "-s", target.session]);
+    }
+  }
+
+  if (!target.window) {
+    return;
+  }
+
+  const windowTarget = `${target.session}:${target.window}`;
+  const windowExists = await hasTmuxTarget(windowTarget);
+
+  if (!windowExists) {
+    await execFileAsync("tmux", ["new-window", "-d", "-t", target.session, "-n", target.window]);
+  }
+
+  if (!target.pane) {
+    return;
+  }
+
+  const paneTarget = `${windowTarget}.${target.pane}`;
+  const paneExists = await hasTmuxTarget(paneTarget);
+
+  if (!paneExists) {
+    throw new Error(`tmux pane ${paneTarget} does not exist.`);
+  }
 }
 
 export async function dispatchToTmux(target: ResolvedTmuxTarget, message: string) {
   const targetString = targetToString(target);
   await execFileAsync("tmux", ["send-keys", "-t", targetString, "-l", message]);
   await execFileAsync("tmux", ["send-keys", "-t", targetString, "Enter"]);
+}
+
+export async function restartTmuxTarget(target: ResolvedTmuxTarget) {
+  if (!target.window) {
+    await execFileAsync("tmux", ["kill-session", "-t", target.session]).catch(() => undefined);
+    await ensureTmuxTargetExists(target);
+    return;
+  }
+
+  const windowTarget = `${target.session}:${target.window}`;
+  await execFileAsync("tmux", ["kill-window", "-t", windowTarget]).catch(() => undefined);
+  await ensureTmuxTargetExists(target);
 }
 
 export async function captureTmuxTail(target: ResolvedTmuxTarget, lines = 120) {

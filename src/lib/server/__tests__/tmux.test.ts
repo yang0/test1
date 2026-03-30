@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildCodexInstallShellCommand,
-  resolveTmuxTarget,
-  targetToString,
-} from "@/lib/server/tmux";
-import { buildInstallPrompt } from "@/lib/server/workbench-config";
+  buildInstallBootstrapCommands,
+  buildInstallPrompt,
+  parseInstallSessionOutput,
+  shouldAcknowledgeCodexTrustPrompt,
+  INSTALL_JOB_STATUS_COMPLETED,
+  INSTALL_JOB_SUMMARY_BEGIN,
+  INSTALL_JOB_SUMMARY_END,
+} from "@/lib/server/install-template";
+import { resolveTmuxTarget, targetToString } from "@/lib/server/tmux";
 
 describe("tmux helpers", () => {
   it("prefers explicit tmux target values over defaults", () => {
@@ -39,27 +43,45 @@ describe("tmux helpers", () => {
       "E:/workspace/oss-lab",
     );
 
-    expect(prompt).toContain("请克隆并安装这个仓库，输出结果摘要。");
-    expect(prompt).toContain("anthropic/claude-code");
-    expect(prompt).toContain("https://github.com/anthropic/claude-code");
-    expect(prompt).toContain("E:/workspace/oss-lab");
+    expect(prompt).toContain("请安装本项目：https://github.com/anthropic/claude-code");
+    expect(prompt).toContain("工作目录：E:/workspace/oss-lab");
+    expect(prompt).toContain("INSTALL_JOB_STATUS: completed");
   });
 
-  it("builds a codex shell command that runs inside the selected workspace", () => {
-    const command = buildCodexInstallShellCommand({
+  it("builds install bootstrap commands in the expected order", () => {
+    const commands = buildInstallBootstrapCommands({
       workspacePath: "/mnt/e/workspace/oss-lab/superset",
-      prompt: "请克隆并安装这个仓库，输出结果摘要。",
-      summaryFilePath: "/mnt/e/testProject/test1/.sisyphus/install-jobs/job-1/summary.md",
-      transcriptFilePath: "/mnt/e/testProject/test1/.sisyphus/install-jobs/job-1/transcript.log",
-      finalizeCommand: "cd '/mnt/e/testProject/test1' && npx tsx scripts/finalize-install-job.ts --job-id job-1 --summary-file '/mnt/e/testProject/test1/.sisyphus/install-jobs/job-1/summary.md' --transcript-file '/mnt/e/testProject/test1/.sisyphus/install-jobs/job-1/transcript.log' --exit-code",
+      agentLaunchCommand: "codex --profile frontend --no-alt-screen",
     });
 
-    expect(command).toContain("bash -lc");
-    expect(command).toContain("codex exec");
-    expect(command).toContain("--dangerously-bypass-approvals-and-sandbox");
-    expect(command).toContain("/mnt/e/workspace/oss-lab/superset");
-    expect(command).toContain("/mnt/e/testProject/test1/.sisyphus/install-jobs/job-1/summary.md");
-    expect(command).toContain("请克隆并安装这个仓库，输出结果摘要。");
-    expect(command).toContain("scripts/finalize-install-job.ts --job-id job-1");
+    expect(commands).toEqual([
+      "cd '/mnt/e/workspace/oss-lab/superset'",
+      "codex --profile frontend --no-alt-screen",
+    ]);
+  });
+
+  it("parses install session markers from tmux output", () => {
+    const parsed = parseInstallSessionOutput([
+      "some log",
+      INSTALL_JOB_SUMMARY_BEGIN,
+      "已读取 README",
+      "依赖安装完成",
+      INSTALL_JOB_SUMMARY_END,
+      INSTALL_JOB_STATUS_COMPLETED,
+    ].join("\n"));
+
+    expect(parsed).toEqual({
+      status: "completed",
+      summary: "已读取 README\n依赖安装完成",
+    });
+  });
+
+  it("detects the codex trust prompt from tmux output", () => {
+    expect(
+      shouldAcknowledgeCodexTrustPrompt([
+        "Do you trust the contents of this directory?",
+        "Press enter to continue",
+      ].join("\n")),
+    ).toBe(true);
   });
 });

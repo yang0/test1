@@ -3,20 +3,25 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
 import { prisma } from "@/lib/server/db";
-import { finishInstallJob, createInstallJob, markInstallJobProcessing } from "@/lib/server/install-jobs";
+import {
+  createInstallJob,
+  finalizeInstallJob,
+  getInstallJob,
+  markInstallJobProcessing,
+  resetInstallJob,
+} from "@/lib/server/install-jobs";
+import {
+  buildInstallBootstrapCommands,
+  buildInstallPrompt,
+} from "@/lib/server/install-template";
+import {
+  LocalInstallStatus,
+  findLatestLocalProjectForRepository,
+  upsertLocalProject,
+} from "@/lib/server/local-projects";
 import { findRepositoryByOwnerAndName } from "@/lib/server/repositories";
 import { getWorkbenchRuntimeConfig } from "@/lib/server/settings";
-import {
-  buildCodexInstallShellCommand,
-  dispatchToTmux,
-  ensureTmuxTargetExists,
-  resolveTmuxTarget,
-} from "@/lib/server/tmux";
-import {
-  buildInstallPrompt,
-  getInstallJobArtifactPaths,
-  WORKBENCH_APP_ROOT,
-} from "@/lib/server/workbench-config";
+import { dispatchToTmux, ensureTmuxTargetExists, resolveTmuxTarget, restartTmuxTarget } from "@/lib/server/tmux";
 
 async function resolveInstallWorkspacePath(
   repositoryId: string,
@@ -38,22 +43,11 @@ async function resolveInstallWorkspacePath(
   return projectRootPath ? path.join(projectRootPath, repositoryName) : null;
 }
 
-export async function requestRepositoryInstall(owner: string, name: string) {
-  const repository = await findRepositoryByOwnerAndName(owner, name);
-
-  if (!repository) {
-    throw new Error(`Repository ${owner}/${name} was not found in local storage.`);
-  }
-
+async function resolveBootstrapForRepository(repositoryId: string, repositoryName: string) {
   const runtimeConfig = await getWorkbenchRuntimeConfig();
-  const tmuxTarget = resolveTmuxTarget({
-    defaultTmuxSession: runtimeConfig.tmux.session,
-    defaultTmuxWindow: runtimeConfig.tmux.window,
-    defaultTmuxPane: runtimeConfig.tmux.pane,
-  });
   const workspacePath = await resolveInstallWorkspacePath(
-    repository.id,
-    repository.name,
+    repositoryId,
+    repositoryName,
     runtimeConfig.projectRootPath,
   );
 
@@ -63,6 +57,39 @@ export async function requestRepositoryInstall(owner: string, name: string) {
 
   await mkdir(workspacePath, { recursive: true });
 
+  const bootstrapCommands = buildInstallBootstrapCommands({
+    workspacePath,
+    agentLaunchCommand: runtimeConfig.agent.launchCommand,
+  });
+
+  return {
+    runtimeConfig,
+    workspacePath,
+    bootstrapCommands,
+  };
+}
+
+export async function requestRepositoryInstall(owner: string, name: string) {
+  const repository = await findRepositoryByOwnerAndName(owner, name);
+
+  if (!repository) {
+    throw new Error(`Repository ${owner}/${name} was not found in local storage.`);
+  }
+
+  const runtimeConfig = await getWorkbenchRuntimeConfig();
+  const baseTmuxTarget = resolveTmuxTarget({
+    defaultTmuxSession: runtimeConfig.tmux.session,
+    defaultTmuxWindow: runtimeConfig.tmux.window,
+    defaultTmuxPane: runtimeConfig.tmux.pane,
+  });
+  const { workspacePath, bootstrapCommands } = await resolveBootstrapForRepository(
+    repository.id,
+    repository.name,
+  );
+
+  if (!workspacePath) {
+    throw new Error("Project root path is not configured for install workflow.");
+  }
   const promptText = buildInstallPrompt(
     runtimeConfig.prompts.install,
     {
@@ -75,43 +102,64 @@ export async function requestRepositoryInstall(owner: string, name: string) {
   const job = await createInstallJob({
     repositoryId: repository.id,
     promptText,
-    targetTmuxSession: tmuxTarget.session,
-    targetTmuxWindow: tmuxTarget.window,
-    targetTmuxPane: tmuxTarget.pane,
+    targetTmuxSession: baseTmuxTarget.session,
+    targetTmuxWindow: `install-${repository.name}-${Date.now().toString(36)}`,
+    targetTmuxPane: null,
   });
-  const artifactPaths = getInstallJobArtifactPaths(job.id);
+  const tmuxTarget = {
+    session: job.targetTmuxSession ?? baseTmuxTarget.session,
+    window: job.targetTmuxWindow,
+    pane: null,
+  };
+  const latestLocalProject = await findLatestLocalProjectForRepository(repository.id);
 
-  await mkdir(artifactPaths.jobRoot, { recursive: true });
-
-  const finalizeCommand = [
-    "cd",
-    `'${WORKBENCH_APP_ROOT.replace(/'/g, `'"'"'`)}'`,
-    "&&",
-    "npx tsx scripts/finalize-install-job.ts",
-    "--job-id",
-    job.id,
-    "--summary-file",
-    `'${artifactPaths.summaryFilePath.replace(/'/g, `'"'"'`)}'`,
-    "--transcript-file",
-    `'${artifactPaths.transcriptFilePath.replace(/'/g, `'"'"'`)}'`,
-    "--exit-code",
-  ].join(" ");
-
-  const codexCommand = buildCodexInstallShellCommand({
-    workspacePath,
-    prompt: promptText,
-    summaryFilePath: artifactPaths.summaryFilePath,
-    transcriptFilePath: artifactPaths.transcriptFilePath,
-    finalizeCommand,
+  await upsertLocalProject({
+    projectPath: workspacePath,
+    rootPath:
+      latestLocalProject?.rootPath ??
+      runtimeConfig.projectRootPath ??
+      path.dirname(workspacePath),
+    detectedName: repository.name,
+    repositoryId: repository.id,
+    gitRemoteUrl: repository.repoUrl,
+    cloneStatus: latestLocalProject?.cloneStatus ?? LocalCloneStatus.discovered,
+    installStatus: LocalInstallStatus.pending,
+    lastScannedAt: latestLocalProject?.lastScannedAt ?? new Date(),
+    lastInstalledAt: latestLocalProject?.lastInstalledAt ?? null,
   });
-
   try {
     await ensureTmuxTargetExists(tmuxTarget);
-    await dispatchToTmux(tmuxTarget, codexCommand);
+    await dispatchToTmux(tmuxTarget, "clear");
+    for (const command of bootstrapCommands) {
+      await dispatchToTmux(tmuxTarget, command);
+    }
     return markInstallJobProcessing(job.id);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown install dispatch error.";
-    await finishInstallJob(job.id, "failed", null, message);
+    await finalizeInstallJob(job.id, "failed", null, message);
     throw error;
   }
+}
+
+export async function reopenInstallJob(jobId: string) {
+  const job = await getInstallJob(jobId);
+  if (!job || !job.repository || !job.targetTmuxSession) {
+    throw new Error("Install job or tmux target is unavailable for reopen.");
+  }
+
+  const tmuxTarget = {
+    session: job.targetTmuxSession,
+    window: job.targetTmuxWindow,
+    pane: job.targetTmuxPane,
+  };
+
+  const { bootstrapCommands } = await resolveBootstrapForRepository(job.repository.id, job.repository.name);
+
+  await restartTmuxTarget(tmuxTarget);
+  await dispatchToTmux(tmuxTarget, "clear");
+  for (const command of bootstrapCommands) {
+    await dispatchToTmux(tmuxTarget, command);
+  }
+
+  return resetInstallJob(job.id);
 }
