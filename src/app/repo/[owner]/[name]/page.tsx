@@ -89,6 +89,9 @@ export default async function RepoDetailPage({ params }: RepoPageProps) {
             </div>
 
             <div className="flex flex-wrap gap-[var(--space-3)] lg:justify-end">
+              <Link href="/" className="secondary-button">
+                返回首页
+              </Link>
               <Link href="/projects" className="secondary-button">
                 查看我的项目
               </Link>
