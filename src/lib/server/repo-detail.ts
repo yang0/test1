@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   TranslationStatus,
   type ReadmeDocument,
@@ -11,6 +13,17 @@ const README_TRANSLATION_FAILURE_MARKDOWN = `# 中文 README 暂不可用
 
 当前自动翻译失败，系统已经保留原始 README 并记录错误。你仍然可以在页面下方查看原文 README。`;
 
+const README_ORIGINAL_FAILURE_MARKDOWN = `# 原始 README 暂不可用
+
+当前从 GitHub 抓取原始 README 失败。系统已经记录错误，你可以稍后重试。`;
+
+const README_FETCH_FAILURE_SOURCE_SHA = "readme-fetch-failed";
+const README_FETCH_MAX_ATTEMPTS = 3;
+const README_FETCH_RETRY_BASE_DELAY_MS = 1200;
+const README_PREWARM_CONCURRENCY = 1;
+
+let readmeGenerationQueue: Promise<void> = Promise.resolve();
+
 const CHINESE_README_CANDIDATES = [
   "README.zh-CN.md",
   "README.zh_CN.md",
@@ -22,6 +35,13 @@ const CHINESE_README_CANDIDATES = [
   "README_zh-CN.md",
   "README-zh-CN.md",
   "README_zh_CN.md",
+];
+
+const DEFAULT_README_CANDIDATES = [
+  "README.md",
+  "README",
+  "README.rst",
+  "README.txt",
 ];
 
 export type ReadmeSource = {
@@ -50,6 +70,7 @@ export type RepositoryReadmeModel = {
   translationStatus: TranslationStatus;
   translatedAt: Date | null;
   updatedAt: Date | null;
+  errorMessage?: string | null;
 };
 
 export type RepositoryDetailModel = {
@@ -60,7 +81,7 @@ export type RepositoryDetailModel = {
 
 async function fetchGitHubReadmeContent(repository: Repository, path: string) {
   const url = `https://api.github.com/repos/${repository.owner}/${repository.name}/contents/${path}`;
-  const response = await fetchExternal(url, {
+  const response = await fetchWithRetry(url, {
     headers: {
       Accept: "application/vnd.github+json",
       "User-Agent": "chinese-trending-workbench/0.1",
@@ -87,9 +108,106 @@ async function fetchGitHubReadmeContent(repository: Repository, path: string) {
   };
 }
 
+function getReadmePrewarmConcurrency() {
+  const parsed = Number.parseInt(process.env.README_PREWARM_CONCURRENCY ?? "", 10);
+
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return parsed;
+  }
+
+  return README_PREWARM_CONCURRENCY;
+}
+
+function isRetriableReadmeFetchStatus(status: number) {
+  return status === 403 || status === 429 || status >= 500;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(url: string, init: NonNullable<Parameters<typeof fetchExternal>[1]>) {
+  let response = await fetchExternal(url, init);
+
+  for (let attempt = 1; attempt < README_FETCH_MAX_ATTEMPTS; attempt += 1) {
+    if (!isRetriableReadmeFetchStatus(response.status)) {
+      return response;
+    }
+
+    await sleep(README_FETCH_RETRY_BASE_DELAY_MS * attempt);
+    response = await fetchExternal(url, init);
+  }
+
+  return response;
+}
+
+function buildSyntheticReadmeSourceSha(content: string) {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+function buildRawGitHubReadmeUrl(repository: Repository, ref: string, path: string) {
+  const encodedPath = path
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+
+  return `https://raw.githubusercontent.com/${repository.owner}/${repository.name}/${ref}/${encodedPath}`;
+}
+
+function getReadmeRawRefs(repository: Repository) {
+  return Array.from(new Set([repository.defaultBranch, "HEAD"].filter((value): value is string => Boolean(value))));
+}
+
+async function fetchRawGitHubReadmeContent(repository: Repository, path: string) {
+  let lastError: Error | null = null;
+
+  for (const ref of getReadmeRawRefs(repository)) {
+    const response = await fetchWithRetry(buildRawGitHubReadmeUrl(repository, ref, path), {
+      headers: {
+        Accept: "text/plain",
+        "User-Agent": "chinese-trending-workbench/0.1",
+      },
+    });
+
+    if (response.status === 404) {
+      continue;
+    }
+
+    if (!response.ok) {
+      lastError = new Error(`Failed to fetch README for ${repository.fullName}: ${response.status}`);
+      continue;
+    }
+
+    const content = await response.text();
+
+    if (!content.trim()) {
+      continue;
+    }
+
+    return {
+      sourceSha: buildSyntheticReadmeSourceSha(content),
+      content,
+    };
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+
+  return null;
+}
+
 async function fetchPreferredChineseReadme(repository: Repository) {
+  for (const candidate of CHINESE_README_CANDIDATES) {
+    const rawReadme = await fetchRawGitHubReadmeContent(repository, candidate);
+
+    if (rawReadme) {
+      return rawReadme;
+    }
+  }
+
   const url = `https://api.github.com/repos/${repository.owner}/${repository.name}/contents`;
-  const response = await fetchExternal(url, {
+  const response = await fetchWithRetry(url, {
     headers: {
       Accept: "application/vnd.github+json",
       "User-Agent": "chinese-trending-workbench/0.1",
@@ -128,9 +246,17 @@ async function fetchPreferredChineseReadme(repository: Repository) {
 }
 
 async function fetchDefaultReadme(repository: Repository) {
+  for (const candidate of DEFAULT_README_CANDIDATES) {
+    const rawReadme = await fetchRawGitHubReadmeContent(repository, candidate);
+
+    if (rawReadme) {
+      return rawReadme;
+    }
+  }
+
   return fetchGitHubReadmeContent(repository, "README.md").catch(async () => {
     const url = `https://api.github.com/repos/${repository.owner}/${repository.name}/readme`;
-    const response = await fetchExternal(url, {
+    const response = await fetchWithRetry(url, {
       headers: {
         Accept: "application/vnd.github+json",
         "User-Agent": "chinese-trending-workbench/0.1",
@@ -158,11 +284,34 @@ async function fetchDefaultReadme(repository: Repository) {
   });
 }
 
+function buildReadmeFetchFailureModel(errorMessage: string): RepositoryReadmeModel {
+  const originalMarkdown = `${README_ORIGINAL_FAILURE_MARKDOWN}\n\n错误信息：${errorMessage}`;
+  const zhMarkdown = `${README_TRANSLATION_FAILURE_MARKDOWN}\n\n错误信息：${errorMessage}`;
+
+  return {
+    sourceSha: null,
+    originalMarkdown,
+    zhMarkdown,
+    translationStatus: TranslationStatus.failed,
+    translatedAt: null,
+    updatedAt: null,
+    errorMessage,
+  };
+}
+
+function runReadmeGenerationSerially<T>(work: () => Promise<T>) {
+  const run = readmeGenerationQueue.then(work, work);
+  readmeGenerationQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+
+  return run;
+}
+
 export async function fetchRepositoryReadmeSource(repository: Repository): Promise<ReadmeSource> {
-  const [defaultReadme, preferredChineseReadme] = await Promise.all([
-    fetchDefaultReadme(repository),
-    fetchPreferredChineseReadme(repository),
-  ]);
+  const defaultReadme = await fetchDefaultReadme(repository);
+  const preferredChineseReadme = await fetchPreferredChineseReadme(repository).catch(() => null);
 
   return {
     sourceSha: defaultReadme.sourceSha,
@@ -190,47 +339,85 @@ export async function ensureRepositoryReadme(
       translationStatus: cachedReadme.translationStatus,
       translatedAt: cachedReadme.translatedAt,
       updatedAt: cachedReadme.updatedAt,
+      errorMessage: cachedReadme.errorMessage,
     };
   }
 
-  const readmeSource = await dependencies.fetchReadmeSource(repository);
-  let zhMarkdown = README_TRANSLATION_FAILURE_MARKDOWN;
-  let translationStatus: TranslationStatus = TranslationStatus.failed;
-  let errorMessage: string | null = null;
-  let translatedAt: Date | null = null;
+  return runReadmeGenerationSerially(async () => {
+    const queuedCachedReadme = await dependencies.getLatestReadmeDocument(repository.id);
 
-  if (readmeSource.contentZhPreferred) {
-    zhMarkdown = readmeSource.contentZhPreferred;
-    translationStatus = TranslationStatus.done;
-    translatedAt = new Date();
-  } else {
+    if (queuedCachedReadme?.contentZh) {
+      return {
+        sourceSha: queuedCachedReadme.sourceSha,
+        originalMarkdown: queuedCachedReadme.contentOriginal,
+        zhMarkdown: queuedCachedReadme.contentZh,
+        translationStatus: queuedCachedReadme.translationStatus,
+        translatedAt: queuedCachedReadme.translatedAt,
+        updatedAt: queuedCachedReadme.updatedAt,
+        errorMessage: queuedCachedReadme.errorMessage,
+      };
+    }
+
+    let readmeSource: ReadmeSource;
+
     try {
-      zhMarkdown = await dependencies.translateMarkdownToChinese(readmeSource.contentOriginal, repository);
+      readmeSource = await dependencies.fetchReadmeSource(repository);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown README fetch error.";
+      const failureReadme = buildReadmeFetchFailureModel(errorMessage);
+
+      await dependencies.upsertReadmeDocument({
+        repositoryId: repository.id,
+        sourceSha: README_FETCH_FAILURE_SOURCE_SHA,
+        contentOriginal: failureReadme.originalMarkdown,
+        contentZh: null,
+        translationStatus: TranslationStatus.failed,
+        translatedAt: null,
+        errorMessage,
+      });
+
+      return failureReadme;
+    }
+
+    let zhMarkdown = README_TRANSLATION_FAILURE_MARKDOWN;
+    let translationStatus: TranslationStatus = TranslationStatus.failed;
+    let errorMessage: string | null = null;
+    let translatedAt: Date | null = null;
+
+    if (readmeSource.contentZhPreferred) {
+      zhMarkdown = readmeSource.contentZhPreferred;
       translationStatus = TranslationStatus.done;
       translatedAt = new Date();
-    } catch (error) {
-      errorMessage = error instanceof Error ? error.message : "Unknown README translation error.";
+    } else {
+      try {
+        zhMarkdown = await dependencies.translateMarkdownToChinese(readmeSource.contentOriginal, repository);
+        translationStatus = TranslationStatus.done;
+        translatedAt = new Date();
+      } catch (error) {
+        errorMessage = error instanceof Error ? error.message : "Unknown README translation error.";
+      }
     }
-  }
 
-  await dependencies.upsertReadmeDocument({
-    repositoryId: repository.id,
-    sourceSha: readmeSource.sourceSha,
-    contentOriginal: readmeSource.contentOriginal,
-    contentZh: zhMarkdown,
-    translationStatus,
-    translatedAt,
-    errorMessage,
+    await dependencies.upsertReadmeDocument({
+      repositoryId: repository.id,
+      sourceSha: readmeSource.sourceSha,
+      contentOriginal: readmeSource.contentOriginal,
+      contentZh: translationStatus === TranslationStatus.done ? zhMarkdown : null,
+      translationStatus,
+      translatedAt,
+      errorMessage,
+    });
+
+    return {
+      sourceSha: readmeSource.sourceSha,
+      originalMarkdown: readmeSource.contentOriginal,
+      zhMarkdown: translationStatus === TranslationStatus.done ? zhMarkdown : "",
+      translationStatus,
+      translatedAt,
+      updatedAt: translatedAt,
+      errorMessage,
+    };
   });
-
-  return {
-    sourceSha: readmeSource.sourceSha,
-    originalMarkdown: readmeSource.contentOriginal,
-    zhMarkdown,
-    translationStatus,
-    translatedAt,
-    updatedAt: translatedAt,
-  };
 }
 
 export async function prewarmRepositoryReadmes(
@@ -241,32 +428,61 @@ export async function prewarmRepositoryReadmes(
     translateMarkdownToChinese,
     upsertReadmeDocument,
   },
+  options: { maxConcurrent?: number } = {},
 ) {
-  const results = await Promise.allSettled(
-    repositories.map(async (repository) => {
-      const cachedReadme = await dependencies.getLatestReadmeDocument(repository.id);
+  const results = new Array<
+    | { repositoryId: string; status: "cached" | "generated" }
+    | { repositoryId: string; status: "failed"; error: string }
+  >(repositories.length);
+  const maxConcurrent = Math.max(1, options.maxConcurrent ?? getReadmePrewarmConcurrency());
+  let nextIndex = 0;
 
-      if (cachedReadme?.contentZh) {
-        return { repositoryId: repository.id, status: "cached" as const };
+  const worker = async () => {
+    while (nextIndex < repositories.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      const repository = repositories[currentIndex];
+
+      if (!repository) {
+        continue;
       }
 
-      await ensureRepositoryReadme(repository, dependencies);
-      return { repositoryId: repository.id, status: "generated" as const };
-    }),
-  );
+      try {
+        const cachedReadme = await dependencies.getLatestReadmeDocument(repository.id);
 
-  return results.map((result, index) => {
-    const repositoryId = repositories[index]?.id ?? `unknown-${index}`;
+        if (cachedReadme?.contentZh) {
+          results[currentIndex] = { repositoryId: repository.id, status: "cached" };
+          continue;
+        }
 
-    if (result.status === "fulfilled") {
-      return result.value;
+        const readme = await ensureRepositoryReadme(repository, dependencies);
+
+        if (readme.translationStatus === TranslationStatus.done) {
+          results[currentIndex] = { repositoryId: repository.id, status: "generated" };
+          continue;
+        }
+
+        results[currentIndex] = {
+          repositoryId: repository.id,
+          status: "failed",
+          error: readme.errorMessage ?? "README prewarm did not complete successfully.",
+        };
+      } catch (error) {
+        results[currentIndex] = {
+          repositoryId: repository.id,
+          status: "failed",
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
     }
+  };
 
-    return {
-      repositoryId,
-      status: "failed" as const,
-      error: result.reason instanceof Error ? result.reason.message : String(result.reason),
-    };
+  await Promise.all(Array.from({ length: Math.min(maxConcurrent, repositories.length) }, () => worker()));
+
+  return results.map((result, index) => result ?? {
+    repositoryId: repositories[index]?.id ?? `unknown-${index}`,
+    status: "failed" as const,
+    error: "README prewarm exited before producing a result.",
   });
 }
 

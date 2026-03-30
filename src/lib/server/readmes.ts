@@ -46,8 +46,12 @@ export async function upsertReadmeDocument(input: UpsertReadmeDocumentInput) {
 
 export async function getLatestReadmeDocument(repositoryId: string): Promise<ReadmeDocument | null> {
   return prisma.readmeDocument.findFirst({
-    where: { repositoryId },
-    orderBy: [{ updatedAt: "desc" }],
+    where: {
+      repositoryId,
+      translationStatus: TranslationStatus.done,
+      contentZh: { not: null },
+    },
+    orderBy: [{ translatedAt: "desc" }, { updatedAt: "desc" }],
   });
 }
 

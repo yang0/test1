@@ -129,6 +129,35 @@ describe("getRepositoryDetailModel", () => {
     });
   });
 
+  it("continues with machine translation when preferred chinese readme lookup fails", async () => {
+    const repository = createRepository();
+    const dependencies: ReadmeTranslationDependencies = {
+      getLatestReadmeDocument: vi.fn().mockResolvedValue(null),
+      fetchReadmeSource: vi.fn().mockResolvedValue({
+        sourceSha: "fallback123",
+        contentOriginal: "# Original README\n\nHello world.",
+        contentZhPreferred: null,
+      }),
+      translateMarkdownToChinese: vi.fn().mockResolvedValue("# 中文 README\n\n你好，世界。"),
+      upsertReadmeDocument: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const result = await getRepositoryDetailModel(repository, dependencies);
+
+    expect(result.readme.zhMarkdown).toContain("中文 README");
+    expect(result.readme.translationStatus).toBe(TranslationStatus.done);
+    expect(dependencies.translateMarkdownToChinese).toHaveBeenCalledTimes(1);
+    expect(dependencies.upsertReadmeDocument).toHaveBeenCalledWith({
+      repositoryId: repository.id,
+      sourceSha: "fallback123",
+      contentOriginal: "# Original README\n\nHello world.",
+      contentZh: "# 中文 README\n\n你好，世界。",
+      translationStatus: TranslationStatus.done,
+      translatedAt: expect.any(Date),
+      errorMessage: null,
+    });
+  });
+
   it("can ensure a repository readme without building the full page model", async () => {
     const repository = createRepository();
     const dependencies: ReadmeTranslationDependencies = {
@@ -203,5 +232,124 @@ describe("getRepositoryDetailModel", () => {
       translatedAt: expect.any(Date),
       errorMessage: null,
     });
+  });
+
+  it("returns a failed result instead of throwing when readme fetching fails", async () => {
+    const repository = createRepository();
+    const dependencies: ReadmeTranslationDependencies = {
+      getLatestReadmeDocument: vi.fn().mockResolvedValue(null),
+      fetchReadmeSource: vi.fn().mockRejectedValue(new Error("Failed to fetch README for anthropic/claude-code: 403")),
+      translateMarkdownToChinese: vi.fn(),
+      upsertReadmeDocument: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const readme = await ensureRepositoryReadme(repository, dependencies);
+
+    expect(readme.translationStatus).toBe(TranslationStatus.failed);
+    expect(readme.errorMessage).toContain("403");
+    expect(readme.zhMarkdown).toContain("中文 README 暂不可用");
+    expect(readme.originalMarkdown).toContain("原始 README 暂不可用");
+    expect(dependencies.upsertReadmeDocument).toHaveBeenCalledWith({
+      repositoryId: repository.id,
+      sourceSha: "readme-fetch-failed",
+      contentOriginal: expect.stringContaining("原始 README 暂不可用"),
+      contentZh: null,
+      translationStatus: TranslationStatus.failed,
+      translatedAt: null,
+      errorMessage: "Failed to fetch README for anthropic/claude-code: 403",
+    });
+  });
+
+  it("limits prewarm concurrency while still processing every repository", async () => {
+    const repositories = [
+      createRepository(),
+      { ...createRepository(), id: "repo-2", owner: "repo", name: "two", fullName: "repo/two", repoUrl: "https://github.com/repo/two" },
+      { ...createRepository(), id: "repo-3", owner: "repo", name: "three", fullName: "repo/three", repoUrl: "https://github.com/repo/three" },
+    ];
+    let inFlight = 0;
+    let maxInFlight = 0;
+
+    const dependencies: ReadmeTranslationDependencies = {
+      getLatestReadmeDocument: vi.fn().mockResolvedValue(null),
+      fetchReadmeSource: vi.fn().mockImplementation(async (repository: Repository) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        inFlight -= 1;
+
+        return {
+          sourceSha: `sha-${repository.id}`,
+          contentOriginal: `# ${repository.fullName}`,
+        };
+      }),
+      translateMarkdownToChinese: vi.fn().mockImplementation(async (markdown: string) => `中文 ${markdown}`),
+      upsertReadmeDocument: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const result = await prewarmRepositoryReadmes(repositories, dependencies, { maxConcurrent: 2 });
+
+    expect(maxInFlight).toBeLessThanOrEqual(2);
+    expect(result).toEqual([
+      { repositoryId: "repo-1", status: "generated" },
+      { repositoryId: "repo-2", status: "generated" },
+      { repositoryId: "repo-3", status: "generated" },
+    ]);
+  });
+
+  it("serializes readme generation by default across concurrent requests", async () => {
+    const firstRepository = createRepository();
+    const secondRepository = {
+      ...createRepository(),
+      id: "repo-2",
+      owner: "repo",
+      name: "two",
+      fullName: "repo/two",
+      repoUrl: "https://github.com/repo/two",
+    };
+    let inFlightTranslations = 0;
+    let maxInFlightTranslations = 0;
+
+    const dependencies: ReadmeTranslationDependencies = {
+      getLatestReadmeDocument: vi.fn().mockResolvedValue(null),
+      fetchReadmeSource: vi.fn().mockImplementation(async (repository: Repository) => ({
+        sourceSha: `sha-${repository.id}`,
+        contentOriginal: `# ${repository.fullName}`,
+      })),
+      translateMarkdownToChinese: vi.fn().mockImplementation(async (markdown: string) => {
+        inFlightTranslations += 1;
+        maxInFlightTranslations = Math.max(maxInFlightTranslations, inFlightTranslations);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        inFlightTranslations -= 1;
+        return `中文 ${markdown}`;
+      }),
+      upsertReadmeDocument: vi.fn().mockResolvedValue(undefined),
+    };
+
+    await Promise.all([
+      ensureRepositoryReadme(firstRepository, dependencies),
+      ensureRepositoryReadme(secondRepository, dependencies),
+    ]);
+
+    expect(maxInFlightTranslations).toBe(1);
+  });
+
+  it("reports prewarm failures without crashing the whole batch", async () => {
+    const repository = createRepository();
+    const dependencies: ReadmeTranslationDependencies = {
+      getLatestReadmeDocument: vi.fn().mockResolvedValue(null),
+      fetchReadmeSource: vi.fn().mockRejectedValue(new Error("Failed to fetch README for anthropic/claude-code: 429")),
+      translateMarkdownToChinese: vi.fn(),
+      upsertReadmeDocument: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const result = await prewarmRepositoryReadmes([repository], dependencies, { maxConcurrent: 1 });
+
+    expect(result).toEqual([
+      {
+        repositoryId: repository.id,
+        status: "failed",
+        error: "Failed to fetch README for anthropic/claude-code: 429",
+      },
+    ]);
   });
 });
