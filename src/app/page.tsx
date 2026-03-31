@@ -1,6 +1,8 @@
 import { ContentShell } from "@/components/content-shell";
 import { RepoCard } from "@/components/repo-card";
+import { ReadmePrewarmTrigger } from "@/components/readme-prewarm-trigger";
 import { ViewSwitch } from "@/components/view-switch";
+import { addRepositoryByUrlAction } from "@/app/actions/repositories";
 import {
   normalizeHomePeriod,
   type HomePeriod,
@@ -16,54 +18,12 @@ type HomePageSearchParams = {
   period?: string | string[] | undefined;
   q?: string | string[] | undefined;
   page?: string | string[] | undefined;
+  pin?: string | string[] | undefined;
 };
 
 type HomePageProps = {
   searchParams: Promise<HomePageSearchParams>;
 };
-
-function buildReadmePrewarmScript(repositoryIds: string[]) {
-  const ids = JSON.stringify(repositoryIds.slice(0, 8));
-
-  return `
-    (() => {
-      const repositoryIds = ${ids};
-      if (!Array.isArray(repositoryIds) || repositoryIds.length === 0) {
-        return;
-      }
-
-      let triggered = false;
-      const run = () => {
-        if (triggered) {
-          return;
-        }
-        triggered = true;
-        fetch('/api/readme/prewarm', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ repositoryIds }),
-          keepalive: true,
-        }).catch(() => undefined);
-      };
-
-      const timeoutId = window.setTimeout(run, 1500);
-      if (typeof window.requestIdleCallback === 'function') {
-        const idleId = window.requestIdleCallback(run);
-        window.addEventListener('beforeunload', () => {
-          window.clearTimeout(timeoutId);
-          if (typeof window.cancelIdleCallback === 'function') {
-            window.cancelIdleCallback(idleId);
-          }
-        }, { once: true });
-        return;
-      }
-
-      window.addEventListener('beforeunload', () => {
-        window.clearTimeout(timeoutId);
-      }, { once: true });
-    })();
-  `;
-}
 
 async function getHomePageRepositories(period: TrendingPeriod) {
   let repositories = await listRepositories(period);
@@ -96,7 +56,12 @@ function normalizePageNumber(value: string | string[] | undefined) {
   return parsed;
 }
 
-function buildHomeHref(period: HomePeriod, query = "", page = 1) {
+function normalizePinnedRepository(value: string | string[] | undefined) {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  return candidate?.trim() ?? "";
+}
+
+function buildHomeHref(period: HomePeriod, query = "", page = 1, pinnedFullName = "") {
   if (period !== "all") {
     return period === "daily" ? "/?period=daily" : `/?period=${period}`;
   }
@@ -109,6 +74,10 @@ function buildHomeHref(period: HomePeriod, query = "", page = 1) {
   if (page > 1) {
     params.set("page", String(page));
   }
+  const normalizedPinnedFullName = pinnedFullName.trim();
+  if (normalizedPinnedFullName) {
+    params.set("pin", normalizedPinnedFullName);
+  }
 
   return `/?${params.toString()}`;
 }
@@ -120,14 +89,20 @@ function buildPaginationWindow(page: number, totalPages: number) {
 }
 
 export default async function HomePage({ searchParams }: HomePageProps) {
-  const { period: rawPeriod, q: rawQuery, page: rawPage } = await searchParams;
+  const { period: rawPeriod, q: rawQuery, page: rawPage, pin: rawPin } = await searchParams;
   const period = normalizeHomePeriod(rawPeriod);
   const query = normalizeSearchQuery(rawQuery);
   const requestedPage = normalizePageNumber(rawPage);
+  const pinnedFullName = normalizePinnedRepository(rawPin);
 
   const allRepositoriesResult =
     period === "all"
-      ? await listAllRepositories({ query, page: requestedPage, pageSize: ALL_REPOSITORIES_PAGE_SIZE })
+      ? await listAllRepositories({
+          query,
+          page: requestedPage,
+          pageSize: ALL_REPOSITORIES_PAGE_SIZE,
+          pinnedFullName,
+        })
       : null;
   const defaultRepositoriesResult = period === "all" ? null : await getHomePageRepositories(period);
   const repositories = allRepositoriesResult?.repositories ?? defaultRepositoriesResult?.repositories ?? [];
@@ -140,7 +115,30 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     <ContentShell title="中文 Trending 仓库">
       <section className="panel overflow-hidden">
         <div className="flex flex-col gap-[var(--space-4)] border-b border-[var(--color-border-muted)] bg-[var(--color-canvas-subtle)] px-[var(--space-6)] py-[var(--space-5)] sm:px-[var(--space-8)] lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-col items-start gap-[var(--space-3)] lg:ml-auto lg:items-end">
+          <div className="grid gap-[var(--space-4)] lg:max-w-[32rem]">
+            <div className="flex flex-col gap-[var(--space-2)]">
+              <p className="text-[length:var(--text-kicker)] font-medium uppercase tracking-[0.28em] text-[var(--color-fg-subtle)]">
+                手动添加仓库
+              </p>
+              <p className="max-w-[32rem] text-[length:var(--text-body-compact)] leading-7 text-[var(--color-fg-muted)]">
+                输入 GitHub 仓库地址后会写入当前仓库列表，并自动跳转到“全部”页面，将新添加的项目置顶显示。
+              </p>
+            </div>
+            <form action={addRepositoryByUrlAction} className="flex flex-col gap-[var(--space-3)] sm:flex-row sm:items-center">
+              <input
+                type="url"
+                name="repositoryUrl"
+                required
+                placeholder="https://github.com/owner/name"
+                className="min-w-[16rem] flex-1 rounded-[var(--radius-pill)] border border-[var(--color-border-default)] bg-[var(--color-canvas-default)] px-[var(--space-4)] py-[var(--space-2)] text-[length:var(--text-body-compact)] text-[var(--color-fg-default)] outline-none transition focus:border-[var(--color-accent-emphasis)]"
+              />
+              <button type="submit" className="primary-button sm:shrink-0">
+                添加仓库
+              </button>
+            </form>
+          </div>
+
+          <div className="flex flex-col items-start gap-[var(--space-3)] lg:items-end">
             <ViewSwitch
               items={[
                 { href: buildHomeHref("daily"), label: "日", active: period === "daily" },
@@ -173,7 +171,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         </div>
 
         <div>
-          <script dangerouslySetInnerHTML={{ __html: buildReadmePrewarmScript(repositories.map((repository) => repository.id)) }} />
+          <ReadmePrewarmTrigger repositoryIds={repositories.map((repository) => repository.id)} />
           {allRepositoriesResult && allRepositoriesResult.total === 0 ? (
             <div className="px-[var(--space-6)] py-[var(--space-8)] text-[length:var(--text-body)] text-[var(--color-fg-muted)] sm:px-[var(--space-8)]">
               没有找到符合当前搜索条件的仓库。
@@ -197,14 +195,17 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               </p>
               <div className="flex flex-wrap items-center gap-[var(--space-2)]">
                 {allRepositoriesResult.page > 1 ? (
-                  <a href={buildHomeHref("all", query, allRepositoriesResult.page - 1)} className="secondary-button">
+                  <a
+                    href={buildHomeHref("all", query, allRepositoriesResult.page - 1, pinnedFullName)}
+                    className="secondary-button"
+                  >
                     上一页
                   </a>
                 ) : null}
                 {paginationWindow.map((pageNumber) => (
                   <a
                     key={pageNumber}
-                    href={buildHomeHref("all", query, pageNumber)}
+                    href={buildHomeHref("all", query, pageNumber, pinnedFullName)}
                     aria-current={pageNumber === allRepositoriesResult.page ? "page" : undefined}
                     className="segment-item"
                     data-active={pageNumber === allRepositoriesResult.page ? "true" : "false"}
@@ -213,7 +214,10 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                   </a>
                 ))}
                 {allRepositoriesResult.page < allRepositoriesResult.totalPages ? (
-                  <a href={buildHomeHref("all", query, allRepositoriesResult.page + 1)} className="secondary-button">
+                  <a
+                    href={buildHomeHref("all", query, allRepositoriesResult.page + 1, pinnedFullName)}
+                    className="secondary-button"
+                  >
                     下一页
                   </a>
                 ) : null}

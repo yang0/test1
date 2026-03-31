@@ -115,12 +115,14 @@ export type ListAllRepositoriesInput = {
   query?: string;
   page?: number;
   pageSize?: number;
+  pinnedFullName?: string;
 };
 
 export function filterAndPaginateRepositories(
   repositories: Repository[],
   input: ListAllRepositoriesInput = {},
 ) {
+  const pinnedFullName = input.pinnedFullName?.trim();
   const normalizedQuery = input.query?.trim().toLocaleLowerCase() ?? "";
   const pageSize = Number.isInteger(input.pageSize) && (input.pageSize ?? 0) > 0 ? input.pageSize ?? 20 : 20;
   const requestedPage = Number.isInteger(input.page) && (input.page ?? 0) > 0 ? input.page ?? 1 : 1;
@@ -152,6 +154,18 @@ export function filterAndPaginateRepositories(
 
       return left.fullName.localeCompare(right.fullName);
     });
+
+  if (pinnedFullName) {
+    const pinnedIndex = filteredRepositories.findIndex((repository) => repository.fullName === pinnedFullName);
+
+    if (pinnedIndex >= 0) {
+      const [pinnedRepository] = filteredRepositories.splice(pinnedIndex, 1);
+
+      if (pinnedRepository) {
+        filteredRepositories.unshift(pinnedRepository);
+      }
+    }
+  }
 
   const total = filteredRepositories.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));

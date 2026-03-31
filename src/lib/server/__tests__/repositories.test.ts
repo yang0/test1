@@ -75,5 +75,12 @@ describe("repository helpers", () => {
     });
     expect(searchResult.total).toBe(1);
     expect(searchResult.repositories[0]?.fullName).toBe("owner-5/repo-5");
+
+    const pinnedResult = filterAndPaginateRepositories(repositories, {
+      page: 1,
+      pageSize: 20,
+      pinnedFullName: "owner-20/repo-20",
+    });
+    expect(pinnedResult.repositories[0]?.fullName).toBe("owner-20/repo-20");
   });
 });

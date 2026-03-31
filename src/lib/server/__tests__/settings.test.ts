@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAppSettingsPatch,
   DEFAULT_AGENT_LAUNCH_COMMAND,
+  DEFAULT_INSTALL_PROMPT_TEMPLATE,
   DEFAULT_TRANSLATION_PROMPT_TEMPLATE,
   ensureAppSettings,
   updateAppSettings,
@@ -25,6 +26,7 @@ describe("settings helpers", () => {
       defaultTmuxWindow: null,
       defaultTmuxPane: null,
       translationPromptTemplate: DEFAULT_TRANSLATION_PROMPT_TEMPLATE,
+      installPromptTemplate: DEFAULT_INSTALL_PROMPT_TEMPLATE,
     });
   });
 
