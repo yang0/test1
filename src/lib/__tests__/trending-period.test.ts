@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   getTrendingPeriodBadgeLabel,
+  normalizeHomePeriod,
   normalizeTrendingPeriod,
 } from "@/lib/trending-period";
 
@@ -10,6 +11,12 @@ describe("trending period helpers", () => {
     expect(normalizeTrendingPeriod(undefined)).toBe("daily");
     expect(normalizeTrendingPeriod("yearly")).toBe("daily");
     expect(normalizeTrendingPeriod(["monthly", "daily"])).toBe("monthly");
+  });
+
+  it("supports all as a homepage-only period", () => {
+    expect(normalizeHomePeriod("all")).toBe("all");
+    expect(normalizeHomePeriod("weekly")).toBe("weekly");
+    expect(normalizeHomePeriod(undefined)).toBe("daily");
   });
 
   it("returns the expected badge label for each period", () => {

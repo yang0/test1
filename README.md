@@ -34,4 +34,5 @@ npm run build
 - Prisma schema 位于 `prisma/schema.prisma`
 - 本地默认数据库通过 `.env` 中的 `DATABASE_URL` 指向 SQLite 文件
 - 服务逻辑位于 `src/lib/server/`，当前已覆盖 Trending 抓取、README 缓存与翻译，以及本地项目扫描
-- 首页会触发 README 预热，覆盖日 / 周 / 月任一周期内出现且带有仓库地址的全部仓库，以降低首次进入详情页的等待时间
+- 首页会对当前页前 8 个可见仓库做 README 预热，以降低首次进入详情页的等待时间
+- 长驻 Node/PM2 部署下，服务会在 production 启动时自动挂载每日 Trending 同步调度；可用 `TRENDING_SYNC_ENABLED`、`TRENDING_SYNC_SCHEDULE`（默认 `03:00`）和 `TRENDING_SYNC_TIMEZONE`（默认 `Asia/Shanghai`）覆盖

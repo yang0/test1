@@ -24,12 +24,13 @@ export type RepositoryCardModel = {
 type RepoCardProps = {
   repository: RepositoryCardModel;
   period?: TrendingPeriod;
+  showTrendMetric?: boolean;
 };
 
-export function RepoCard({ repository, period = "daily" }: RepoCardProps) {
+export function RepoCard({ repository, period = "daily", showTrendMetric = true }: RepoCardProps) {
   const trendMetricLabel = getTrendingMetricLabel(period);
   const trendMetricValue = getTrendingMetricValue(period, repository);
-  const shouldShowTrendMetric = trendMetricValue > 0;
+  const shouldShowTrendMetric = showTrendMetric && trendMetricValue > 0;
   const description = sanitizeRepositoryDescription(repository.descriptionZh, repository);
 
   return (

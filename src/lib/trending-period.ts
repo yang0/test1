@@ -1,6 +1,7 @@
 export const trendingPeriods = ["daily", "weekly", "monthly"] as const;
 
 export type TrendingPeriod = (typeof trendingPeriods)[number];
+export type HomePeriod = TrendingPeriod | "all";
 
 type SearchParamValue = string | string[] | undefined;
 
@@ -18,6 +19,16 @@ export function normalizeTrendingPeriod(value: SearchParamValue): TrendingPeriod
   }
 
   return "daily";
+}
+
+export function normalizeHomePeriod(value: SearchParamValue): HomePeriod {
+  const candidate = Array.isArray(value) ? value[0] : value;
+
+  if (candidate === "all") {
+    return "all";
+  }
+
+  return normalizeTrendingPeriod(candidate);
 }
 
 export function getTrendingPeriodBadgeLabel(period: TrendingPeriod) {
