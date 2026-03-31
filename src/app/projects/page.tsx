@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 import { ContentShell } from "@/components/content-shell";
 import { ProjectRow } from "@/components/project-row";
 import { listLocalProjects } from "@/lib/server/local-projects";
@@ -76,9 +74,6 @@ export default async function ProjectsPage() {
                   刷新扫描
                 </button>
               </form>
-              <Link href="/settings" className="secondary-button">
-                打开设置
-              </Link>
             </div>
           </div>
         </div>
@@ -95,11 +90,6 @@ export default async function ProjectsPage() {
             ) : (
               <div className="grid gap-[var(--space-3)] px-[var(--space-6)] py-[var(--space-6)] text-[length:var(--text-body)] text-[var(--color-fg-muted)] sm:px-[var(--space-8)]">
                 <p>暂未发现本地项目，可先确认根目录配置后重新执行扫描。</p>
-                <div>
-                  <Link href="/settings" className="secondary-button">
-                    前往设置
-                  </Link>
-                </div>
               </div>
             )}
           </div>

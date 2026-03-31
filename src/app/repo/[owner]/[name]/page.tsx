@@ -92,9 +92,6 @@ export default async function RepoDetailPage({ params }: RepoPageProps) {
               <Link href="/" className="secondary-button">
                 返回首页
               </Link>
-              <Link href="/projects" className="secondary-button">
-                查看我的项目
-              </Link>
             </div>
           </div>
         </section>
